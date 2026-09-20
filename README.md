@@ -77,10 +77,33 @@ WeatherNow is a modern, mobile-first weather web application built with a respon
 ## 🚀 Getting Started
 
 ### 1. Prerequisites
-- Node.js (v18+)
-- npm
+- Node.js (v18+) & npm
+- Python 3.10+ (standard installation, no extra pip packages required)
 
-### 2. Start the Backend Server
+### 2. Run Entire Project with a Single Command (Recommended)
+From the root directory, simply run:
+```bash
+py main.py
+# or
+python main.py
+```
+> **Tip for Windows:** You can also simply double-click [`start.bat`](file:///c:/Users/omraj/OneDrive/Desktop/weather%20fix/start.bat) or [`main.py`](file:///c:/Users/omraj/OneDrive/Desktop/weather%20fix/main.py) directly from File Explorer!
+
+This orchestrator automatically:
+- Checks environment and installs missing npm dependencies for both frontend and backend.
+- Starts backend API server on `http://localhost:5000`.
+- Starts Vite React frontend on `http://localhost:3000`.
+- Automatically opens `http://localhost:3000` in your default browser.
+- Displays live, color-coded unified logs (`[BACKEND]` and `[FRONTEND]`).
+- Cleanly terminates both background servers when you press `Ctrl+C`.
+
+---
+
+### Manual Startup (Alternative)
+<details>
+<summary>Click to view manual multi-terminal instructions</summary>
+
+#### Start the Backend Server
 ```bash
 cd server
 npm install
@@ -88,7 +111,7 @@ npm start
 ```
 The server will start on `http://localhost:5000` and automatically initialize the database and seed the default administrator.
 
-### 3. Start the Frontend Client
+#### Start the Frontend Client
 In a separate terminal window:
 ```bash
 cd client
@@ -96,6 +119,8 @@ npm install
 npm run dev
 ```
 Open `http://localhost:3000` in your web browser.
+
+</details>
 
 ---
 
