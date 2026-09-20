@@ -14,7 +14,8 @@ const PORT = process.env.PORT || 5000;
 
 // Security Middleware
 app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" }
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  contentSecurityPolicy: false
 }));
 
 // CORS configuration
@@ -59,6 +60,23 @@ app.get('/api/health', (req, res) => {
     status: 'online',
     service: 'WeatherNow API',
     timestamp: new Date().toISOString()
+  });
+});
+
+// Serve static frontend build (React/Vite)
+const clientDistPath = path.resolve(__dirname, '../../client/dist');
+app.use(express.static(clientDistPath));
+
+// Client-side SPA routing fallback (exclude /api endpoints)
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api')) {
+    return res.status(404).json({ error: 'API route not found' });
+  }
+  const indexPath = path.join(clientDistPath, 'index.html');
+  res.sendFile(indexPath, (err) => {
+    if (err) {
+      res.status(200).send('WeatherNow API running.');
+    }
   });
 });
 

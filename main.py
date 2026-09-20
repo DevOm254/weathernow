@@ -116,12 +116,24 @@ def check_environment():
     npm_exec = "npm.cmd" if os.name == 'nt' else "npm"
     
     # Check if node_modules exist for both projects
-    for folder, name in [(SERVER_DIR, "Backend"), (CLIENT_DIR, "Frontend")]:
+    for folder, name, extra_args in [
+        (SERVER_DIR, "Backend", []),
+        (CLIENT_DIR, "Frontend", ["--include=dev"])
+    ]:
         node_modules = folder / "node_modules"
         if not node_modules.exists():
             print(f"{YELLOW}[SETUP]{RESET} Dependencies missing for {name} ({folder.name}). Running 'npm install'...")
-            subprocess.run([npm_exec, "install"], cwd=folder, shell=(os.name == 'nt'), check=True)
+            cmd = [npm_exec, "install"] + extra_args
+            subprocess.run(cmd, cwd=folder, shell=(os.name == 'nt'), check=True)
             print(f"{GREEN}[SETUP]{RESET} {name} dependencies installed successfully!\n")
+
+    # Build frontend bundle if needed for production serving
+    dist_dir = CLIENT_DIR / "dist"
+    is_cloud = bool(os.environ.get("RENDER") or os.environ.get("PORT"))
+    if is_cloud or not dist_dir.exists():
+        print(f"{YELLOW}[BUILD]{RESET} Building React production bundle with Vite...")
+        subprocess.run([npm_exec, "run", "build"], cwd=CLIENT_DIR, shell=(os.name == 'nt'), check=True)
+        print(f"{GREEN}[BUILD]{RESET} Production bundle built successfully!\n")
 
 def open_browser_when_ready(url, port, timeout=15):
     """Wait until the frontend port responds, then launch the browser."""
@@ -145,16 +157,56 @@ def main():
     
     check_environment()
     
-    # Check if ports are already occupied
+    node_exec = shutil.which("node") or shutil.which("node.exe") or "node"
+    npm_exec = "npm.cmd" if os.name == 'nt' else "npm"
+    is_cloud = bool(os.environ.get("RENDER") or os.environ.get("PORT"))
+
+    # Production Cloud Mode (Render, Railway, Heroku, etc.)
+    if is_cloud:
+        port = os.environ.get("PORT", "5000")
+        print(f"{BOLD}{GREEN}[PRODUCTION MODE]{RESET} Running fullstack service on port {port}...", flush=True)
+        print(f"  * Serving React UI from client/dist", flush=True)
+        print(f"  * Serving Express API from /api\n", flush=True)
+        
+        server_proc = subprocess.Popen(
+            [node_exec, "src/server.js"],
+            cwd=SERVER_DIR,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            shell=False,
+            encoding='utf-8',
+            errors='replace'
+        )
+        processes.append(server_proc)
+        
+        t_server = threading.Thread(
+            target=stream_logs,
+            args=(server_proc.stdout, "[SERVER] ", CYAN),
+            daemon=True
+        )
+        t_server.start()
+        
+        try:
+            while True:
+                if server_proc.poll() is not None:
+                    print(f"\n{RED}[SERVER]{RESET} Process exited with code {server_proc.poll()}")
+                    break
+                time.sleep(0.5)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            cleanup_processes()
+        return
+
+    # Local Development Mode
     if is_port_in_use(5000):
         print(f"{YELLOW}[WARNING]{RESET} Port 5000 is already in use. Backend may conflict with an existing process.", flush=True)
     if is_port_in_use(3000):
         print(f"{YELLOW}[WARNING]{RESET} Port 3000 is already in use. Vite may switch to port 3001 automatically.", flush=True)
         
     print(f"{DIM}Starting Backend (Node.js/Express) and Frontend (React/Vite)...{RESET}\n", flush=True)
-    
-    node_exec = shutil.which("node") or shutil.which("node.exe") or "node"
-    npm_exec = "npm.cmd" if os.name == 'nt' else "npm"
     
     # 1. Start Backend Server
     server_proc = subprocess.Popen(
