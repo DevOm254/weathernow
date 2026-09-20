@@ -1,5 +1,12 @@
 const express = require('express');
-const axios = require('axios');
+const axiosOrig = require('axios');
+const http = require('http');
+const https = require('https');
+
+const axios = axiosOrig.create({
+  httpAgent: new http.Agent({ family: 4 }),
+  httpsAgent: new https.Agent({ family: 4 })
+});
 const db = require('../db');
 
 const router = express.Router();
