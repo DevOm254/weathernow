@@ -120,7 +120,7 @@ def check_environment():
         node_modules = folder / "node_modules"
         if not node_modules.exists():
             print(f"{YELLOW}[SETUP]{RESET} Dependencies missing for {name} ({folder.name}). Running 'npm install'...")
-            subprocess.run([npm_exec, "install"], cwd=folder, shell=True, check=True)
+            subprocess.run([npm_exec, "install"], cwd=folder, shell=(os.name == 'nt'), check=True)
             print(f"{GREEN}[SETUP]{RESET} {name} dependencies installed successfully!\n")
 
 def open_browser_when_ready(url, port, timeout=15):
@@ -185,7 +185,7 @@ def main():
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1,
-        shell=True,
+        shell=(os.name == 'nt'),
         encoding='utf-8',
         errors='replace'
     )
