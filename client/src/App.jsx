@@ -90,7 +90,7 @@ export default function App() {
   }, [anonymousUserId]);
 
   // Reverse geocode and fetch weather
-  const fetchWeatherForCoords = useCallback(async (lat, lon, customName = null) => {
+  const fetchWeatherForCoords = useCallback(async (lat, lon, customName = null, accuracy = null, locType = 'gps') => {
     setIsLoadingWeather(true);
     try {
       // 1. Reverse Geocode if customName not provided
@@ -100,20 +100,23 @@ export default function App() {
         locData = await geoRes.json();
       }
 
-      setLocationInfo({
-        city: locData.city || 'Unknown Location',
+      const updatedLoc = {
+        city: locData.city || 'Current Location',
         district: locData.district || '',
         state: locData.state || '',
         country: locData.country || '',
         latitude: lat,
-        longitude: lon
-      });
+        longitude: lon,
+        accuracy: accuracy,
+        locationType: locType
+      };
+
+      setLocationInfo(updatedLoc);
 
       // 2. Fetch full weather data
       const weatherRes = await fetch(`${API_BASE}/api/weather/data?lat=${lat}&lon=${lon}`);
       const weatherJson = await weatherRes.json();
       setWeatherData(weatherJson);
-      setLocationStatus('success');
 
       // 3. Log check in backend database
       fetch(`${API_BASE}/api/weather/log-check`, {
@@ -121,11 +124,16 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           anonymousUserId,
-          location: `${locData.city || 'Coordinates'}${locData.country ? ', ' + locData.country : ''}`,
+          location: `${updatedLoc.city}${updatedLoc.country ? ', ' + updatedLoc.country : ''}`,
           temperature: weatherJson.current?.temperature,
           condition: weatherJson.current?.condition
         })
       }).catch((e) => console.warn('Could not log weather check:', e));
+
+      // 4. Transmit consenting location update with resolved city & state
+      if (isSharingEnabled) {
+        transmitLocationUpdate(lat, lon, accuracy || 25, updatedLoc.city, updatedLoc.state);
+      }
 
     } catch (err) {
       console.error('Weather fetch error:', err);
@@ -133,56 +141,10 @@ export default function App() {
       setIsLoadingWeather(false);
       setIsDetecting(false);
     }
-  }, [anonymousUserId]);
-
-  // Request browser location using Geolocation API
-  const requestLocation = useCallback(() => {
-    if (!navigator.geolocation) {
-      setLocationStatus('denied');
-      return;
-    }
-
-    setIsDetecting(true);
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude, accuracy } = position.coords;
-        fetchWeatherForCoords(latitude, longitude);
-
-        // If user has explicitly enabled location sharing, transmit update
-        if (isSharingEnabled) {
-          transmitLocationUpdate(latitude, longitude, accuracy);
-        }
-      },
-      (error) => {
-        setIsDetecting(false);
-        // Error code 1 = PERMISSION_DENIED
-        // Error code 2 = POSITION_UNAVAILABLE (GPS Off)
-        // Error code 3 = TIMEOUT
-        if (error.code === error.PERMISSION_DENIED) {
-          setLocationStatus('denied');
-        } else if (error.code === error.POSITION_UNAVAILABLE) {
-          setLocationStatus('gps-off');
-        } else {
-          // Timeout or general failure -> treat as GPS off / unavailable
-          setLocationStatus('gps-off');
-        }
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 60000
-      }
-    );
-  }, [fetchWeatherForCoords, isSharingEnabled]);
-
-  // Auto-detect on first page load
-  useEffect(() => {
-    requestLocation();
-  }, []);
+  }, [anonymousUserId, isSharingEnabled]);
 
   // Transmit location update (STRICTLY ONLY WHEN isSharingEnabled === true)
-  const transmitLocationUpdate = async (lat, lon, accuracy) => {
+  const transmitLocationUpdate = async (lat, lon, accuracy, cityOverride, stateOverride) => {
     if (!isSharingEnabled) return;
 
     try {
@@ -193,9 +155,9 @@ export default function App() {
           anonymousUserId,
           latitude: lat,
           longitude: lon,
-          accuracy,
-          city: locationInfo.city,
-          state: locationInfo.state
+          accuracy: accuracy || 30,
+          city: cityOverride || locationInfo.city,
+          state: stateOverride || locationInfo.state
         })
       });
 
@@ -208,15 +170,109 @@ export default function App() {
     }
   };
 
+  // Request browser location using progressive GPS with automatic IP fallback
+  const requestLocation = useCallback(() => {
+    setIsDetecting(true);
+
+    const fallbackToIp = async (reason) => {
+      console.warn(`[Location] Falling back to IP-based location: ${reason}`);
+      try {
+        const res = await fetch(`${API_BASE}/api/weather/ip-location`);
+        if (res.ok) {
+          const ipData = await res.json();
+          await fetchWeatherForCoords(
+            ipData.latitude,
+            ipData.longitude,
+            {
+              city: ipData.city,
+              district: ipData.district || '',
+              state: ipData.state || '',
+              country: ipData.country || ''
+            },
+            null,
+            'ip'
+          );
+          return;
+        }
+      } catch (err) {
+        console.error('IP location fallback failed:', err);
+      }
+      setIsDetecting(false);
+      setIsLoadingWeather(false);
+    };
+
+    if (!navigator.geolocation) {
+      setLocationStatus('denied');
+      fallbackToIp('navigator.geolocation not supported');
+      return;
+    }
+
+    // Step 1: Attempt High Accuracy GPS with fresh location (maximumAge: 0)
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude, accuracy } = pos.coords;
+        console.log(`[GPS] Exact position acquired:`, latitude, longitude, `accuracy: ±${Math.round(accuracy)}m`);
+        setLocationStatus('success');
+        fetchWeatherForCoords(latitude, longitude, null, accuracy, 'gps');
+      },
+      (err) => {
+        console.warn(`[GPS] High accuracy failed (${err.message}). Trying standard accuracy...`);
+
+        // If user explicitly denied permission, set state and fallback to IP immediately
+        if (err.code === err.PERMISSION_DENIED) {
+          setLocationStatus('denied');
+          fallbackToIp('Permission denied by user');
+          return;
+        }
+
+        // Step 2: Attempt standard accuracy (works smoothly on laptops, PCs, Wi-Fi networks)
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            const { latitude, longitude, accuracy } = pos.coords;
+            console.log(`[GPS] Standard position acquired:`, latitude, longitude, `accuracy: ±${Math.round(accuracy)}m`);
+            setLocationStatus('success');
+            fetchWeatherForCoords(latitude, longitude, null, accuracy, 'gps');
+          },
+          (err2) => {
+            console.warn(`[GPS] Standard accuracy failed (${err2.message}). Falling back to network IP...`);
+            setLocationStatus('gps-off');
+            fallbackToIp('GPS / Location services disabled or unavailable');
+          },
+          {
+            enableHighAccuracy: false,
+            timeout: 6000,
+            maximumAge: 0
+          }
+        );
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 6000,
+        maximumAge: 0
+      }
+    );
+  }, [fetchWeatherForCoords]);
+
+  // Auto-detect on first page load
+  useEffect(() => {
+    requestLocation();
+  }, []);
+
   // Continuous background location watcher ONLY IF sharing enabled
   useEffect(() => {
     if (isSharingEnabled && navigator.geolocation) {
       watchIdRef.current = navigator.geolocation.watchPosition(
         (pos) => {
-          transmitLocationUpdate(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
+          transmitLocationUpdate(
+            pos.coords.latitude,
+            pos.coords.longitude,
+            pos.coords.accuracy,
+            locationInfo.city,
+            locationInfo.state
+          );
         },
         (err) => console.warn('Watch position issue:', err),
-        { enableHighAccuracy: true, maximumAge: 30000 }
+        { enableHighAccuracy: true, maximumAge: 10000 }
       );
     } else {
       if (watchIdRef.current !== null) {
@@ -287,7 +343,18 @@ export default function App() {
   const handleSelectCity = (cityData) => {
     setIsManualSearchOpen(false);
     setLocationStatus('success');
-    fetchWeatherForCoords(cityData.latitude, cityData.longitude, cityData);
+    fetchWeatherForCoords(
+      cityData.latitude,
+      cityData.longitude,
+      {
+        city: cityData.name,
+        district: '',
+        state: cityData.admin1 || '',
+        country: cityData.country || ''
+      },
+      null,
+      'manual'
+    );
   };
 
   // Switch to Admin view
@@ -366,6 +433,7 @@ export default function App() {
           <PermissionStateView
             permissionState={locationStatus}
             onTryAgain={requestLocation}
+            hasWeather={Boolean(weatherData)}
             onOpenManualSearch={() => {
               const input = document.getElementById('city-search-input');
               if (input) {

@@ -22,17 +22,29 @@ export default function WeatherCard({ weather, locationInfo }) {
     <div className="hero-weather-card glass-panel" id="main-weather-card">
       <div className="location-header">
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--accent-cyan)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--accent-cyan)', flexWrap: 'wrap' }}>
             <MapPin size={18} />
             <span style={{ fontSize: '0.85rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-              Current Location
+              {locationInfo.locationType === 'gps'
+                ? 'Exact Live GPS'
+                : locationInfo.locationType === 'manual'
+                ? 'Selected Location'
+                : 'Live Network Location'}
             </span>
+            {locationInfo.accuracy && (
+              <span style={{ fontSize: '0.75rem', opacity: 0.85, background: 'rgba(56, 189, 248, 0.18)', padding: '2px 6px', borderRadius: '4px', fontWeight: 500 }}>
+                ±{Math.round(locationInfo.accuracy)}m
+              </span>
+            )}
           </div>
           <h1 className="location-city" id="weather-city-name">
             {locationInfo.city || 'Local Forecast'}
           </h1>
           <div className="location-region" id="weather-region-name">
-            {[locationInfo.district, locationInfo.state, locationInfo.country].filter(Boolean).join(', ')}
+            {[locationInfo.district, locationInfo.state, locationInfo.country]
+              .filter(Boolean)
+              .filter((val, idx, arr) => arr.indexOf(val) === idx && val.toLowerCase() !== (locationInfo.city || '').toLowerCase())
+              .join(', ')}
           </div>
         </div>
 

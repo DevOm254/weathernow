@@ -38,6 +38,57 @@ function getWeatherCondition(code) {
   return WMO_CODE_MAP[code] || { label: 'Variable', icon: 'CloudSun' };
 }
 
+// 0. Fallback IP-based Live Location
+router.get('/ip-location', async (req, res) => {
+  // Try fast IP geolocation services
+  try {
+    const ipApiRes = await axios.get('http://ip-api.com/json/?fields=status,message,country,regionName,city,district,lat,lon', { timeout: 3500 });
+    if (ipApiRes.data && ipApiRes.data.status === 'success') {
+      const d = ipApiRes.data;
+      return res.json({
+        city: d.city || 'Local Area',
+        district: d.district || '',
+        state: d.regionName || '',
+        country: d.country || '',
+        latitude: d.lat,
+        longitude: d.lon,
+        source: 'ip'
+      });
+    }
+  } catch (err) {
+    console.warn('[IP Location] ip-api failed, trying secondary provider:', err.message);
+  }
+
+  try {
+    const ipwhoRes = await axios.get('https://ipwho.is/', { timeout: 3500 });
+    if (ipwhoRes.data && ipwhoRes.data.success) {
+      const d = ipwhoRes.data;
+      return res.json({
+        city: d.city || 'Local Area',
+        district: '',
+        state: d.region || '',
+        country: d.country || '',
+        latitude: d.latitude,
+        longitude: d.longitude,
+        source: 'ip'
+      });
+    }
+  } catch (err) {
+    console.warn('[IP Location] ipwho failed:', err.message);
+  }
+
+  // Default fallback if offline or blocked
+  res.json({
+    city: 'New Delhi',
+    district: '',
+    state: 'Delhi',
+    country: 'India',
+    latitude: 28.6139,
+    longitude: 77.2090,
+    source: 'default'
+  });
+});
+
 // 1. Reverse Geocoding (Lat/Lon -> City, District/State, Country)
 router.get('/reverse-geocode', async (req, res) => {
   const { lat, lon } = req.query;
@@ -46,12 +97,71 @@ router.get('/reverse-geocode', async (req, res) => {
     return res.status(400).json({ error: 'Valid lat and lon query parameters required.' });
   }
 
+  const parsedLat = parseFloat(lat);
+  const parsedLon = parseFloat(lon);
+
+  // Strategy 1: BigDataCloud Reverse Geocoding (Fast, accurate, no strict rate limit)
   try {
-    // OpenStreetMap Nominatim with fallback
+    const bdcRes = await axios.get('https://api.bigdatacloud.net/data/reverse-geocode-client', {
+      params: {
+        latitude: parsedLat,
+        longitude: parsedLon,
+        localityLanguage: 'en'
+      },
+      timeout: 4500
+    });
+
+    const d = bdcRes.data;
+    if (d && (d.city || d.locality)) {
+      // Find clean city and locality/district
+      const locality = d.locality || '';
+      const state = d.principalSubdivision || '';
+      const country = d.countryName || '';
+      
+      // Determine primary city display name
+      let city = d.city || locality;
+      let district = '';
+      if (locality && d.city && locality !== d.city) {
+        // If city is a sub-locality, check administrative info if present
+        district = locality;
+      }
+
+      // Check admin info if city is generic or small sub-area
+      if (d.localityInfo && Array.isArray(d.localityInfo.administrative)) {
+        const districtObj = d.localityInfo.administrative.find(a => a.adminLevel === 5 || a.description?.includes('district'));
+        if (districtObj && districtObj.name) {
+          const cleanDistrict = districtObj.name.replace(/\s+district$/i, '');
+          if (!city || city === locality) {
+            city = cleanDistrict;
+            district = locality !== city ? locality : '';
+          }
+        }
+      }
+
+      const parts = [district, city, state, country].filter(Boolean);
+      const uniqueParts = parts.filter((val, idx) => parts.indexOf(val) === idx);
+
+      return res.json({
+        city: city || locality || 'Current Location',
+        district: district !== city ? district : '',
+        state,
+        country,
+        formatted: uniqueParts.join(', '),
+        latitude: parsedLat,
+        longitude: parsedLon,
+        provider: 'bigdatacloud'
+      });
+    }
+  } catch (err) {
+    console.warn('[Geocode] BigDataCloud error or timeout, trying Nominatim fallback:', err.message);
+  }
+
+  // Strategy 2: OpenStreetMap Nominatim Fallback
+  try {
     const response = await axios.get('https://nominatim.openstreetmap.org/reverse', {
       params: {
-        lat,
-        lon,
+        lat: parsedLat,
+        lon: parsedLon,
         format: 'json',
         addressdetails: 1
       },
@@ -62,32 +172,39 @@ router.get('/reverse-geocode', async (req, res) => {
     });
 
     const addr = response.data.address || {};
-    const city = addr.city || addr.town || addr.village || addr.suburb || addr.county || 'Unknown City';
-    const state = addr.state || addr.state_district || addr.region || '';
+    const city = addr.city || addr.town || addr.village || addr.suburb || addr.municipality || addr.city_district || addr.county || 'Current Location';
+    const district = addr.suburb || addr.neighbourhood || addr.city_district || addr.state_district || '';
+    const state = addr.state || addr.region || '';
     const country = addr.country || '';
 
-    res.json({
+    const parts = [district, city, state, country].filter(Boolean);
+    const uniqueParts = parts.filter((val, idx) => parts.indexOf(val) === idx);
+
+    return res.json({
       city,
-      district: addr.state_district || addr.county || state,
+      district: district !== city ? district : '',
       state,
       country,
-      formatted: `${city}${state ? `, ${state}` : ''}${country ? `, ${country}` : ''}`,
-      latitude: parseFloat(lat),
-      longitude: parseFloat(lon)
+      formatted: uniqueParts.join(', '),
+      latitude: parsedLat,
+      longitude: parsedLon,
+      provider: 'nominatim'
     });
   } catch (err) {
-    console.warn('[Geocode] Nominatim error or timeout, trying fallback:', err.message);
-    // Fallback: simple response
-    res.json({
-      city: 'Current Location',
-      district: '',
-      state: '',
-      country: '',
-      formatted: `Lat: ${parseFloat(lat).toFixed(2)}, Lon: ${parseFloat(lon).toFixed(2)}`,
-      latitude: parseFloat(lat),
-      longitude: parseFloat(lon)
-    });
+    console.warn('[Geocode] Nominatim error, using coordinate fallback:', err.message);
   }
+
+  // Strategy 3: Coordinate Fallback
+  res.json({
+    city: 'Current Location',
+    district: '',
+    state: '',
+    country: '',
+    formatted: `Lat: ${parsedLat.toFixed(2)}, Lon: ${parsedLon.toFixed(2)}`,
+    latitude: parsedLat,
+    longitude: parsedLon,
+    provider: 'coordinates'
+  });
 });
 
 // 2. City search autocomplete / resolution
