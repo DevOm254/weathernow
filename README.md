@@ -7,11 +7,14 @@ WeatherNow is a modern, mobile-first weather web application built with a respon
 ## 🌟 Key Features
 
 ### 1. User Weather Application
-- **Geolocation Permission Workflows**:
-  - Automatically requests user location via `navigator.geolocation`.
-  - **GPS Off**: Clear notification explaining that location is turned off with a **“Try Again”** button that re-detects when enabled.
-  - **Permission Denied**: Educational prompt with **“Allow Location”** and **“Search City Manually”** options.
-- **Reverse Geocoding**: Automatically resolves coordinates to city, district/state, and country.
+- **3-Tier Progressive Live Geolocation**:
+  - **Tier 1 (Exact Live GPS)**: Automatically requests fresh hardware/satellite fix (`maximumAge: 0`) with live precision meter (e.g., `±149m`).
+  - **Tier 2 (Standard Wi-Fi / Cell Positioning)**: Gracefully falls back to network positioning on desktop and laptop PCs without dedicated GPS chips.
+  - **Tier 3 (Instant Network IP Fallback)**: If browser location permission is denied or GPS is turned off, the backend `/api/weather/ip-location` endpoint instantly detects user's actual city and loads real-time conditions without leaving the user stranded.
+- **Multi-Provider Reverse Geocoding**:
+  - **Primary**: Ultra-fast **BigDataCloud** geocoding engine (<200ms) with detailed administrative hierarchy (locality, city, district, state).
+  - **Fallback**: **OpenStreetMap Nominatim** with comprehensive address details.
+  - Intelligent deduplication ensures clean city/state display (e.g. `Namkom, Ranchi, Jharkhand`).
 - **Comprehensive Meteorological Data**:
   - Current temperature & feels-like temperature (°C)
   - Weather condition and dynamic animated WMO weather icons
@@ -25,7 +28,7 @@ WeatherNow is a modern, mobile-first weather web application built with a respon
   - Today's high and low temperatures
   - 24-hour hourly forecast carousel
   - 7-day extended outlook with temperature progress bars
-- **City Search Autocomplete**: Search any city or district worldwide or click popular quick-access city pills.
+- **City Search Autocomplete & Quick Pills**: Search any city or district worldwide or click popular quick-access city pills (Tokyo, London, New York, Mumbai, Paris).
 
 ---
 
@@ -63,7 +66,10 @@ WeatherNow is a modern, mobile-first weather web application built with a respon
 - **Frontend**: React, Vite, Lucide React, Leaflet, Custom Mobile-First CSS design system.
 - **Backend**: Node.js, Express, Helmet, CORS, express-rate-limit, bcryptjs, jsonwebtoken.
 - **Database**: SQLite (via `better-sqlite3`), zero-configuration, WAL mode enabled.
-- **APIs**: Open-Meteo API (weather, hourly, 7-day, geocoding), OpenStreetMap Nominatim (reverse geocoding).
+- **APIs**:
+  - Open-Meteo API (weather, hourly, 7-day, geocoding)
+  - BigDataCloud & OpenStreetMap Nominatim (multi-provider reverse geocoding)
+  - ip-api & ipwho.is (instant network IP location fallback)
 
 ### Database Tables
 - **`users`**: `id`, `anonymous_user_id`, `created_at`, `last_weather_check`, `location_sharing_enabled`.
