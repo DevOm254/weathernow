@@ -21,8 +21,8 @@ import { API_BASE } from '../config';
 export default function AdminDashboard({ onNavigateHome }) {
   // Authentication state
   const [token, setToken] = useState(() => localStorage.getItem('weathernow_admin_token') || '');
-  const [loginEmail, setLoginEmail] = useState('admin@weathernow.local');
-  const [loginPassword, setLoginPassword] = useState('AdminPass@123');
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
@@ -312,18 +312,6 @@ export default function AdminDashboard({ onNavigateHome }) {
               {isLoggingIn ? 'Authenticating...' : 'Sign In to Portal'}
             </button>
           </form>
-
-          <div style={{
-            marginTop: '1.5rem',
-            padding: '0.85rem',
-            background: 'rgba(255, 255, 255, 0.03)',
-            borderRadius: '10px',
-            fontSize: '0.8rem',
-            color: 'var(--text-muted)',
-            textAlign: 'center'
-          }}>
-            Default Credentials: <code>admin@weathernow.local</code> / <code>AdminPass@123</code>
-          </div>
         </div>
       </div>
     );
