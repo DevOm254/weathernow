@@ -1,0 +1,40 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Dependency directories
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Production build
+client/dist/
+client/dist-ssr/
+*.local
+
+# Database
+server/weathernow.db
+server/weathernow.db-journal
+server/weathernow.db-wal
+server/weathernow.db-shm
+
+# Environment variables
+.env
+server/.env
+client/.env
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
